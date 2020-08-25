@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // GitResponse is the response given for gitlab
 type GitResponse struct {
 	Commits []Commit `json:"commits"`
@@ -7,9 +9,10 @@ type GitResponse struct {
 
 // Commit is commit info
 type Commit struct {
-	Title   string `json:"title"`
-	Message string `json:"message"`
-	ShortID string `json:"short_id"`
+	Title     string    `json:"title"`
+	Message   string    `json:"message"`
+	ShortID   string    `json:"short_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Parameter is the data required to get commit info

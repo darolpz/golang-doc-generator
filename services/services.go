@@ -1,17 +1,22 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path"
 	"strings"
 
 	"github.com/darolpz/golang-doc-generator/models"
 	"github.com/darolpz/golang-doc-generator/utils"
 	"github.com/jung-kurt/gofpdf"
+	"github.com/mandolyte/mdtopdf"
 )
 
 // GetCommits return commit titles
@@ -88,7 +93,7 @@ func GeneratePdf(params *models.Parameter, commits *[]models.Commit) error {
 
 	//Filling map
 	for _, commit := range *commits {
-		commitClasification := clasifyCommit(&commitTypes, &commit)
+		commitClasification := utils.ClasifyCommit(&commitTypes, &commit)
 		bigMap[commitClasification] = append(bigMap[commitClasification], commit)
 	}
 
@@ -117,31 +122,134 @@ func GeneratePdf(params *models.Parameter, commits *[]models.Commit) error {
 	return pdf.OutputFileAndClose(fmt.Sprintf("docs/%s.pdf", title))
 }
 
-// filterCommits look for all commits from one type and returns them
-func filterCommits(commitType *string, commits *[]models.Commit) []models.Commit {
-	slice := make([]models.Commit, 0)
+//GeneratePdf2 generates 2 files, a md file and a pdf file generated from the md file
+func GeneratePdf2(params *models.Parameter, commits *[]models.Commit) (fileName string, err error) {
+	title := fmt.Sprintf("%s_%s_%s", params.Repo[8:], params.From, params.To)
+	baseURL := utils.GetEnvVariable("GITLAB_URL")
+	repoURL := fmt.Sprintf(`%s/%s`, baseURL, params.Repo)
+
+	/* Getting template */
+	template := "template.md"
+	content, err := ioutil.ReadFile(template)
+	utils.CheckError(err)
+
+	/* Transforming to string */
+	stringifiedContent := string(content)
+
+	/* Creating new md  file */
+	f, err := os.Create(fmt.Sprintf("docs/%s.md", title))
+	utils.CheckError(err)
+	defer f.Close()
+
+	/* Replacing strings */
+	stringifiedContent = strings.ReplaceAll(stringifiedContent, "PROJECT", params.Repo[8:])
+	stringifiedContent = strings.ReplaceAll(stringifiedContent, "TAG_FROM", params.From)
+	stringifiedContent = strings.ReplaceAll(stringifiedContent, "TAG_TO", params.To)
+	stringifiedContent = strings.ReplaceAll(stringifiedContent, "REPO_URL", repoURL)
+
+	/* Writing first part of md file */
+	_, err = f.WriteString(stringifiedContent)
+	utils.CheckError(err)
+
+	/* Start to fullfil with commits */
+
+	commitTypes := [12]string{"Feat", "Fix", "Chore", "Test", "Docs", "Build", "Ci", "Perf", "Refactor", "Revert", "Style", "Others"}
+
+	//¡Map of slices!
+	sliceMap := make(map[string][]models.Commit)
+
+	//Initializing map
+	for _, commitType := range commitTypes {
+		sliceMap[commitType] = make([]models.Commit, 0)
+	}
+
+	//Filling map
 	for _, commit := range *commits {
-		//Compare commmit type with first characters of commit title
-		if strings.ToLower(*commitType) == commit.Title[0:len(*commitType)] {
-			colonIndex := strings.Index(commit.Title, ":")
-			commit.Title = strings.TrimSpace(commit.Title[(colonIndex + 1):])
-			slice = append(slice, commit)
+		commitClasification := utils.ClasifyCommit(&commitTypes, &commit)
+		sliceMap[commitClasification] = append(sliceMap[commitClasification], commit)
+	}
+
+	//Printing commits according to type
+	for _, commitType := range commitTypes {
+		if len(sliceMap[commitType]) > 0 {
+			f.WriteString(fmt.Sprintf("### %s\n\n", commitType))
+
+			for index, commit := range sliceMap[commitType] {
+				// Ignore commit with repeated title
+				if index == 0 || sliceMap[commitType][index].Title != sliceMap[commitType][index-1].Title {
+					f.WriteString(fmt.Sprintf("* **%s** (%s): %s\n", commit.ShortID, commit.CreatedAt.Format("2006-01-02"), commit.Title))
+
+				}
+			}
+			f.WriteString("\n")
 		}
 	}
 
-	return slice
+	f.Sync()
 
+	/* Generating pdf */
+	input := fmt.Sprintf("docs/%s.md", title)
+	output := fmt.Sprintf("docs/%s.pdf", title)
+
+	mdContent, err := ioutil.ReadFile(input)
+	utils.CheckError(err)
+
+	pf := mdtopdf.NewPdfRenderer("", "", output, "")
+	pf.Pdf.SetSubject("title", true)
+	pf.THeader = mdtopdf.Styler{Font: "Times", Style: "IUB", Size: 20, Spacing: 2,
+		TextColor: mdtopdf.Color{Red: 0, Green: 0, Blue: 0},
+		FillColor: mdtopdf.Color{Red: 179, Green: 179, Blue: 255}}
+	pf.TBody = mdtopdf.Styler{Font: "Arial", Style: "", Size: 12, Spacing: 2,
+		TextColor: mdtopdf.Color{Red: 0, Green: 0, Blue: 0},
+		FillColor: mdtopdf.Color{Red: 255, Green: 102, Blue: 129}}
+
+	fileName = output
+	err = pf.Process(mdContent)
+	return
 }
 
-// clasifyCommit returns the type of a commit
-func clasifyCommit(CommitTypes *[12]string, commit *models.Commit) string {
-	for _, commitType := range CommitTypes {
-		//Compare commmit type with first characters of commit title
-		if strings.ToLower(commitType) == commit.Title[0:len(commitType)] {
-			colonIndex := strings.Index(commit.Title, ":")
-			commit.Title = strings.TrimSpace(commit.Title[(colonIndex + 1):])
-			return commitType
-		}
+//NotifyThroughtSlack notifies slack
+func NotifyThroughtSlack(fileName, channel string) {
+	reqURL := utils.GetEnvVariable("SLACK_URL")
+	token := utils.GetEnvVariable("SLACK_APP_TOKEN")
+	token = fmt.Sprintf("Bearer %s", token)
+	channel = utils.GetEnvVariable(strings.ToUpper(channel))
+	fileURL := utils.GetEnvVariable("HOST_URL")
+	// Getting file
+	fileDir, _ := os.Getwd()
+	filePath := path.Join(fileDir, fileName)
+	file, err := os.Open(filePath)
+	utils.CheckError(err)
+	fileContents, err := ioutil.ReadAll(file)
+	utils.CheckError(err)
+
+	//Setting parameters
+	params := map[string]string{
+		"channels":        channel,
+		"initial_comment": fmt.Sprintf("New file upload at: %s/%s", fileURL, fileName),
 	}
-	return "Others"
+	reqBody := new(bytes.Buffer)
+	writer := multipart.NewWriter(reqBody)
+	part, err := writer.CreateFormFile("file", fileName)
+	utils.CheckError(err)
+	part.Write(fileContents)
+
+	for key, val := range params {
+		_ = writer.WriteField(key, val)
+	}
+	err = writer.Close()
+	utils.CheckError(err)
+
+	//Setting http client and sending request
+	request, err := http.NewRequest("POST", reqURL, reqBody)
+	request.Header.Add("Content-Type", writer.FormDataContentType())
+	request.Header.Add("Authorization", token)
+	utils.CheckError(err)
+	client := &http.Client{}
+	resp, err := client.Do(request)
+	utils.CheckError(err)
+
+	defer resp.Body.Close()
+	_, err = ioutil.ReadAll(resp.Body)
+	utils.CheckError(err)
 }

@@ -1,7 +1,7 @@
 # Golang-doc-generator
 
   Golang-doc-generator is a PDF generator written in Go. It genere a release notes pdf from git commit messages.
-  Important: The generated release notes pdf is based in [convenctional commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  Important: It do needs commits writen using [convenctional commits](https://www.conventionalcommits.org/en/v1.0.0/) in order to work
 
 
 
@@ -21,6 +21,14 @@ Then create a .env file to set environment variables. There is a .env.example in
 ```sh
 GITLAB_URL=A VALID GITLAB ROUTE
 PORT=PORT WHERE THE SERVICE WILL RUN
+
+SLACK_URL=A URL TO A SLACK WORKSPACE WHERE YOU WANT TO NOTIFY
+SLACK_APP_TOKEN=TOKEN OF YOUR APP
+HOST_URL= THE URL OF YOUR SERVICE
+
+CHANNEL1=CHANNEL WHERE YOU WANT TO SEND A NOTIFICATION
+CHANNEL2=CHANNEL WHERE YOU WANT TO SEND A NOTIFICATION
+CHANNEL3=CHANNEL WHERE YOU WANT TO SEND A NOTIFICATION
 ```
 
 Start the server using
