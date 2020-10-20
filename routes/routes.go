@@ -56,12 +56,13 @@ func InitRoutes() *gin.Engine {
 		}
 
 		commits := services.GetCommits(&params)
-		err := services.GeneratePdf(&params, &commits)
+		filename, err := services.GeneratePdf(&params, &commits)
 		if err != nil {
 			log.Printf("Error %s\n", err.Error())
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			panic(err)
 		}
+		services.NotifyThroughtSlack(filename, params.Channel)
 		c.JSON(200, gin.H{
 			"message": "Release notes has been created succesfully",
 		})

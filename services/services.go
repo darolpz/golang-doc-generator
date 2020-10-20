@@ -43,7 +43,7 @@ func GetCommits(params *models.Parameter) []models.Commit {
 }
 
 // GeneratePdf generates a pdf for release notes
-func GeneratePdf(params *models.Parameter, commits *[]models.Commit) error {
+func GeneratePdf(params *models.Parameter, commits *[]models.Commit) (fileName string, err error) {
 	baseURL := utils.GetEnvVariable("GITLAB_URL")
 	//Setting up document
 	title := fmt.Sprintf("%s_%s_%s", params.Repo[8:], params.From, params.To)
@@ -118,8 +118,9 @@ func GeneratePdf(params *models.Parameter, commits *[]models.Commit) error {
 			pdf.Ln(4)
 		}
 	}
-
-	return pdf.OutputFileAndClose(fmt.Sprintf("docs/%s.pdf", title))
+	fileName = fmt.Sprintf("docs/%s.pdf", title)
+	pdf.OutputFileAndClose(fmt.Sprintf("docs/%s.pdf", title))
+	return
 }
 
 //GeneratePdf2 generates 2 files, a md file and a pdf file generated from the md file
